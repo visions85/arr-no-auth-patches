@@ -1,0 +1,35 @@
+# Log files
+*.log
+/var/log/
+
+# Docker volumes and configs
+config/
+data/
+logs/
+
+# Backup files
+*.backup
+*.bak
+
+# Environment files with secrets
+.env
+.env.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp

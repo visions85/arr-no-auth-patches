@@ -1,0 +1,75 @@
+services:
+  sonarr:
+    image: sonarr-no-auth:final
+    container_name: sonarr-tv
+    networks:
+      - proxy
+      - default
+    ports:
+      - "8989:8989"
+    environment:
+      - PUID=99
+      - PGID=1000
+      - UMASK=022
+      - TZ=America/Chicago
+      - SONARR__AUTH__METHOD=None
+      - SONARR__AUTH__REQUIRED=DisabledForLocalAddresses
+      - SONARR__AUTH__APIKEY=your-api-key-here
+      - SONARR__AUTH__AUTHENTICATION_REQUIRED=Disabled
+    volumes:
+      - ./config/sonarr:/config
+      - /path/to/tv:/tv
+      - /path/to/downloads:/downloads
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.entrypoints=http"
+      - "traefik.http.routers.sonarr.middlewares=default-headers@file,authentik-forward-auth@file"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.yourdomain.com`)"
+      - "traefik.http.routers.sonarr-secure.entrypoints=https"
+      - "traefik.http.routers.sonarr-secure.rule=Host(`sonarr.yourdomain.com`)"
+      - "traefik.http.routers.sonarr-secure.tls=true"
+      - "traefik.http.routers.sonarr-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.sonarr-secure.middlewares=default-headers@file,authentik-forward-auth@file"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+
+  radarr:
+    image: radarr-no-auth:final
+    container_name: radarr-movies
+    networks:
+      - proxy
+      - default
+    ports:
+      - "7878:7878"
+    environment:
+      - PUID=99
+      - PGID=1000
+      - UMASK=022
+      - TZ=America/Chicago
+      - RADARR__AUTH__METHOD=None
+      - RADARR__AUTH__REQUIRED=DisabledForLocalAddresses
+      - RADARR__AUTH__APIKEY=your-api-key-here
+      - RADARR__AUTH__AUTHENTICATION_REQUIRED=Disabled
+      - RADARR__URLBASE=  # Important: Empty URL base
+    volumes:
+      - ./config/radarr:/config
+      - /path/to/movies:/movies
+      - /path/to/downloads:/downloads
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.radarr.entrypoints=http"
+      - "traefik.http.routers.radarr.middlewares=default-headers@file,authentik-forward-auth@file"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.yourdomain.com`)"
+      - "traefik.http.routers.radarr-secure.entrypoints=https"
+      - "traefik.http.routers.radarr-secure.rule=Host(`radarr.yourdomain.com`)"
+      - "traefik.http.routers.radarr-secure.tls=true"
+      - "traefik.http.routers.radarr-secure.tls.certresolver=cloudflare"
+      - "traefik.http.routers.radarr-secure.middlewares=default-headers@file,authentik-forward-auth@file"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+
+networks:
+  proxy:
+    external: true
