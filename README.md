@@ -146,3 +146,53 @@ MIT License - Feel free to use and modify as needed.
 ## Contributing
 
 Pull requests welcome! Please test thoroughly with your setup before submitting.
+
+## Complete Setup Examples
+
+### 🔧 Traefik Configuration
+See `examples/traefik/middlewares.yml` for complete Traefik middleware configuration including the Authentik forward auth setup.
+
+### 🔐 Authentik Configuration  
+See `examples/authentik/outpost-config.md` for detailed Authentik setup including:
+- Creating proxy providers
+- Setting up applications
+- Configuring outposts
+- Troubleshooting common issues
+
+### 🐳 Complete Stack
+See `examples/complete-stack.yml` for a full Docker Compose setup with:
+- Traefik reverse proxy
+- Authentik authentication server
+- PostgreSQL and Redis
+- Sonarr and Radarr with no-auth patches
+- Proper networking and SSL certificates
+
+Copy `examples/.env.example` to `.env` and customize for your environment.
+
+## Step-by-Step Setup
+
+1. **Build the custom images:**
+   ```bash
+   docker build -t sonarr-no-auth:final ./sonarr
+   docker build -t radarr-no-auth:final ./radarr
+   ```
+
+2. **Configure Traefik middleware:**
+   - Copy `examples/traefik/middlewares.yml` to your Traefik config directory
+   - Update the Authentik server address to match your setup
+
+3. **Configure Authentik:**
+   - Follow the guide in `examples/authentik/outpost-config.md`
+   - Create proxy providers and applications
+   - Add them to your Traefik outpost
+
+4. **Update your Docker Compose:**
+   - Use the configurations from `examples/complete-stack.yml`
+   - Or update your existing setup with the Traefik labels shown
+
+5. **Deploy and test:**
+   ```bash
+   docker-compose up -d
+   ```
+
+Visit your domains - you should authenticate through Authentik and then see Sonarr/Radarr without authentication popups!

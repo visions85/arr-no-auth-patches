@@ -1,0 +1,191 @@
+# Complete Docker Compose Stack Example
+# Includes Traefik + Authentik + Sonarr/Radarr with no-auth patches
+
+services:
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080" # Dashboard (secure this in production)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik:/etc/traefik:ro
+      - ./traefik/acme:/acme
+    environment:
+      - CF_API_EMAIL=${CF_API_EMAIL}
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    command:
+      - --api.dashboard=true
+      - --api.debug=true
+      - --log.level=INFO
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      - --providers.file.directory=/etc/traefik
+      - --providers.file.watch=true
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      - --certificatesresolvers.cloudflare.acme.dnschallenge=true
+      - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
+      - --certificatesresolvers.cloudflare.acme.email=${CF_API_EMAIL}
+      - --certificatesresolvers.cloudflare.acme.storage=/acme/acme.json
+
+  # PostgreSQL for Authentik
+  postgresql:
+    image: docker.io/library/postgres:15-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - ./authentik/database:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=${PG_PASS}
+      - POSTGRES_USER=authentik
+      - POSTGRES_DB=authentik
+    networks:
+      - authentik
+
+  # Redis for Authentik
+  redis:
+    image: docker.io/library/redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    volumes:
+      - ./authentik/redis:/data
+    networks:
+      - authentik
+
+  # Authentik Server
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.4.2
+    restart: unless-stopped
+    command: server
+    environment:
+      - AUTHENTIK_REDIS__HOST=redis
+      - AUTHENTIK_POSTGRESQL__HOST=postgresql
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASS}
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=true
+    volumes:
+      - ./authentik/media:/media
+      - ./authentik/custom-templates:/templates
+    depends_on:
+      - postgresql
+      - redis
+    networks:
+      - proxy
+      - authentik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authentik.rule=Host(`auth.${DOMAIN}`)"
+      - "traefik.http.routers.authentik.entrypoints=https"
+      - "traefik.http.routers.authentik.tls.certresolver=cloudflare"
+      - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+
+  # Authentik Worker
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.4.2
+    restart: unless-stopped
+    command: worker
+    environment:
+      - AUTHENTIK_REDIS__HOST=redis
+      - AUTHENTIK_POSTGRESQL__HOST=postgresql
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASS}
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=true
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./authentik/media:/media
+      - ./authentik/certs:/certs
+      - ./authentik/custom-templates:/templates
+    depends_on:
+      - postgresql
+      - redis
+    networks:
+      - authentik
+
+  # Sonarr with no-auth patches
+  sonarr:
+    image: sonarr-no-auth:final
+    container_name: sonarr-tv
+    restart: unless-stopped
+    networks:
+      - proxy
+      - default
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - SONARR__AUTH__METHOD=None
+      - SONARR__AUTH__REQUIRED=DisabledForLocalAddresses
+      - SONARR__AUTH__APIKEY=${SONARR_API_KEY}
+      - SONARR__AUTH__AUTHENTICATION_REQUIRED=Disabled
+    volumes:
+      - ./config/sonarr:/config
+      - ${TV_PATH}:/tv
+      - ${DOWNLOADS_PATH}:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.${DOMAIN}`)"
+      - "traefik.http.routers.sonarr.entrypoints=https"
+      - "traefik.http.routers.sonarr.tls.certresolver=cloudflare"
+      - "traefik.http.routers.sonarr.middlewares=default-headers@file,authentik-forward-auth@file"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+
+  # Radarr with no-auth patches
+  radarr:
+    image: radarr-no-auth:final
+    container_name: radarr-movies
+    restart: unless-stopped
+    networks:
+      - proxy
+      - default
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - RADARR__AUTH__METHOD=None
+      - RADARR__AUTH__REQUIRED=DisabledForLocalAddresses
+      - RADARR__AUTH__APIKEY=${RADARR_API_KEY}
+      - RADARR__AUTH__AUTHENTICATION_REQUIRED=Disabled
+      - RADARR__URLBASE= # Important: Empty URL base
+    volumes:
+      - ./config/radarr:/config
+      - ${MOVIES_PATH}:/movies
+      - ${DOWNLOADS_PATH}:/downloads
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.${DOMAIN}`)"
+      - "traefik.http.routers.radarr.entrypoints=https"
+      - "traefik.http.routers.radarr.tls.certresolver=cloudflare"
+      - "traefik.http.routers.radarr.middlewares=default-headers@file,authentik-forward-auth@file"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+
+networks:
+  proxy:
+    external: true
+  authentik:
+    driver: bridge
